@@ -1,4 +1,4 @@
-import { B as b } from "./basedecoder-PoXbLGBV.js";
+import { B as b } from "./main-CM7Rw5f1.js";
 const B = 9, E = 256, p = 257, k = 12;
 function x(c, o, r) {
   const i = o % 8, n = Math.floor(o / 8), h = 8 - i, g = o + r - (n + 1) * 8;
@@ -82,4 +82,4 @@ class m extends b {
 export {
   m as default
 };
-//# sourceMappingURL=lzw-DQ6ibF74.js.map
+//# sourceMappingURL=lzw-Cxxa9BnZ.js.map

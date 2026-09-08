@@ -106,6 +106,18 @@ describe("GeoTIFFTileSource layout (pyramid + SVS companions)", () => {
     expect(levels.length).toBe(1);
   });
 
+  it("does not create a decoder pool just because the plugin was enabled", () => {
+    // reading sharedPool would create one, so check the backing field
+    expect(GeoTIFFTileSource._sharedPool).toBe(null);
+  });
+
+  it("uses an injected decoder pool", () => {
+    const decoderPool = {};
+    const osd = Object.create(OpenSeadragon);
+    enableGeoTIFFTileSource(osd, { decoderPool });
+    expect(osd.GeoTIFFTileSource.sharedPool).toBe(decoderPool);
+  });
+
   it("isSvsStyleCompanionPage matches macro/label line (case-insensitive)", () => {
     expect(
       GeoTIFFTileSource.isSvsStyleCompanionPage(

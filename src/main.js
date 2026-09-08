@@ -16,6 +16,7 @@ window.GeoTIFF = gtiff;
  * @param {Object} options - Options object.
  * @param {String} options.workerUrl - URL of the worker script to use for GeoTIFF conversion. Defaults to the worker script bundled with this library.
  * @param {Object} options.workerPool - Worker pool to use for GeoTIFF conversion. Defaults to a new pool created for this instance.
+ * @param {Object} options.decoderPool - geotiff.js Pool used to decode tiles. Defaults to a pool created on first use.
  */
 export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
 
@@ -28,6 +29,7 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
   const {
     workerUrl,     // optional: string or URL
     workerPool,    // optional: { createWorker: () => Worker }
+    decoderPool,   // optional: geotiff.js Pool
   } = options;
 
   const defaultCreateWorker = () => {
@@ -80,16 +82,27 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
    * @property {Array}  levels
    */
   class GeoTIFFTileSource extends OpenSeadragon.TileSource {
+    static _sharedPool = decoderPool ?? null;
+
     /**
      * Create a shared GeoTIFF Pool for all GeoTIFFTileSources to use.
      *
      * If a shared pool is not created, every page of every GeoTIFF will create its own pool,
      * which can quickly lead to browser crashes.
      *
+     * Created on first use, so that importing this module does not spawn workers.
+     *
      * @static sharedPool
      * @type {Pool}
      */
-    static sharedPool = new Pool();
+    static get sharedPool() {
+      this._sharedPool = this._sharedPool ?? new Pool();
+      return this._sharedPool;
+    }
+
+    static set sharedPool(pool) {
+      this._sharedPool = pool;
+    }
 
     constructor(input, opts = { logLatency: false }) {
       super();

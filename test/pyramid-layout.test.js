@@ -106,6 +106,23 @@ describe("GeoTIFFTileSource layout (pyramid + SVS companions)", () => {
     expect(levels.length).toBe(1);
   });
 
+  it("counts tiles from the level, not from the rounded level scale", () => {
+    // a reduced level whose height rounds down: scale * full height is 48.6, the level is 48
+    const source = Object.create(GeoTIFFTileSource.prototype);
+    source.levels = [
+      { width: 100, height: 48, tileWidth: 48, tileHeight: 48 },
+      { width: 1000, height: 486, tileWidth: 48, tileHeight: 48 },
+    ];
+    source.minLevel = 0;
+    source.maxLevel = 1;
+    source.dimensions = new OpenSeadragon.Point(1000, 486);
+
+    // the inherited implementation returns 2 rows here, one more than the level holds
+    expect(OpenSeadragon.TileSource.prototype.getNumTiles.call(source, 0).y).toBe(2);
+    expect(source.getNumTiles(0)).toEqual(new OpenSeadragon.Point(3, 1));
+    expect(source.getNumTiles(1)).toEqual(new OpenSeadragon.Point(21, 11));
+  });
+
   it("isSvsStyleCompanionPage matches macro/label line (case-insensitive)", () => {
     expect(
       GeoTIFFTileSource.isSvsStyleCompanionPage(

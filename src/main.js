@@ -395,6 +395,18 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
       let defaultTileWidth = this._tileSize;
       let defaultTileHeight = this._tileSize;
 
+      // strip-stored levels report the full width and RowsPerStrip as their tile size,
+      // which would read the level one strip at a time
+      const levelTileSize = (image) => {
+        const fd = GeoTIFFTileSource.getGeoTiffFileDirectory(image);
+        const tiled = fd.TileWidth !== undefined && fd.TileLength !== undefined;
+        return {
+          tileWidth: this.options.tileWidth || (tiled && image.getTileWidth()) || defaultTileWidth,
+          tileHeight:
+            this.options.tileHeight || (tiled && image.getTileHeight()) || defaultTileHeight,
+        };
+      };
+
       // The first image is the highest-resolution view (at least, with the largest width)
       let fullWidth = images[0].getWidth();
       this.width = fullWidth;
@@ -427,8 +439,7 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
           return {
             width: w,
             height: h,
-            tileWidth: this.options.tileWidth || image.getTileWidth() || defaultTileWidth,
-            tileHeight: this.options.tileHeight || image.getTileHeight() || defaultTileHeight,
+            ...levelTileSize(image),
             image: image,
             scaleFactor: 1,
           };
@@ -462,8 +473,7 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
             return {
               width: fullWidth / scale,
               height: fullHeight / scale,
-              tileWidth: this.options.tileWidth || image.getTileWidth() || defaultTileWidth,
-              tileHeight: this.options.tileHeight || image.getTileHeight() || defaultTileHeight,
+              ...levelTileSize(image),
               image: image,
               scaleFactor: (scale * image.getWidth()) / fullWidth,
             };

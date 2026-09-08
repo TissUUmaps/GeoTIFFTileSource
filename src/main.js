@@ -34,11 +34,12 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
     // If caller passed a specific URL, use it directly
     if (workerUrl) {
       // workerUrl can be a string or URL object
-      return new Worker(workerUrl, { type: "module" });
+      return new globalThis.Worker(workerUrl, { type: "module" });
     }
 
     // Fallback: original behavior – worker lives in ./formats/ next to this file
-    return new Worker(new URL("./formats/tiff.worker.js", import.meta.url), {
+    // globalThis.Worker keeps downstream bundlers from resolving the URL at build time
+    return new globalThis.Worker(new URL("./formats/tiff.worker.js", import.meta.url), {
       type: "module",
     });
   };

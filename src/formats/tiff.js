@@ -153,7 +153,8 @@ class RawTiffWorkerPool {
 }
 
 function __rt_defaultCreateWorker() {
-  return new Worker(new URL("./tiff.worker.js", import.meta.url), { type: "module" });
+  // globalThis.Worker keeps downstream bundlers from resolving the URL at build time
+  return new globalThis.Worker(new URL("./tiff.worker.js", import.meta.url), { type: "module" });
 }
 
 /**

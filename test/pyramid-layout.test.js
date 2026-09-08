@@ -106,6 +106,31 @@ describe("GeoTIFFTileSource layout (pyramid + SVS companions)", () => {
     expect(levels.length).toBe(1);
   });
 
+  it("uses the default tile size for strip-stored levels", () => {
+    const stripped = mockPage(1000, 800);
+    stripped.getTileWidth = () => 1000; // full width
+    stripped.getTileHeight = () => 16; // RowsPerStrip
+
+    const tiled = mockPage(500, 400);
+    tiled.fileDirectory.TileWidth = 512;
+    tiled.fileDirectory.TileLength = 512;
+    tiled.getTileWidth = () => 512;
+    tiled.getTileHeight = () => 512;
+
+    const source = Object.create(GeoTIFFTileSource.prototype);
+    source.GeoTIFFImages = [stripped, tiled];
+    source.options = {};
+    source._tileSize = 256;
+    source.setupComplete = () => {};
+    source.setupLevels();
+
+    const byWidth = Object.fromEntries(source.levels.map((level) => [level.width, level]));
+    expect(byWidth[1000].tileWidth).toBe(256);
+    expect(byWidth[1000].tileHeight).toBe(256);
+    expect(byWidth[500].tileWidth).toBe(512);
+    expect(byWidth[500].tileHeight).toBe(512);
+  });
+
   it("isSvsStyleCompanionPage matches macro/label line (case-insensitive)", () => {
     expect(
       GeoTIFFTileSource.isSvsStyleCompanionPage(

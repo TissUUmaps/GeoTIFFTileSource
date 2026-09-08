@@ -207,6 +207,11 @@ export class TiffRaster {
   getType() { return "tiffRaster"; }
 }
 
+function copyTiffRaster(raster) {
+  // bands carry the pixel data and are the only part a tile handler can modify
+  return new TiffRaster({ ...raster, bands: raster.bands.map((band) => band.slice()) });
+}
+
 function deepMerge(a, b) {
   const out = Array.isArray(a) ? a.slice() : Object.assign({}, a || {});
   if (!b || typeof b !== "object") return out;
@@ -698,6 +703,7 @@ export function installRawTiffPlugin(OpenSeadragon, opts = {}) {
       $.converter.learn("rawTiff", "imageBitmap", (tile, data) => __rt_rawTiffToImageBitmap(tile, data), 1, 5);
     }
 
+    $.converter.learn("tiffRaster", "tiffRaster", (tile, raster) => copyTiffRaster(raster), 1, 1);
     $.converter.learn("tiffRaster", "context2d", (tile, raster) => rasterToContext2d(tile, raster), 2, 10);
     $.converter.learn("tiffRaster", "imageBitmap", (tile, raster) => rasterToImageBitmap(tile, raster), 1, 50);
 

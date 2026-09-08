@@ -306,6 +306,25 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
     }
 
     /**
+     * Return the number of tiles at a given level.
+     *
+     * Taken from the level itself: the inherited implementation derives the count from
+     * the level scale, whose rounding can yield one row or column more than the level has.
+     * @function
+     * @param {Number} level
+     */
+    getNumTiles(level) {
+      if (this.levels.length > level) {
+        const { width, height, tileWidth, tileHeight } = this.levels[level];
+        return new OpenSeadragon.Point(
+          Math.ceil(width / tileWidth),
+          Math.ceil(height / tileHeight)
+        );
+      }
+      return super.getNumTiles(level);
+    }
+
+    /**
      * Handle maintaining unique caches per channel in multi-channel images
      */
     getTileHashKey(level, x, y) {

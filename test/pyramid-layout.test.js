@@ -106,6 +106,34 @@ describe("GeoTIFFTileSource layout (pyramid + SVS companions)", () => {
     expect(levels.length).toBe(1);
   });
 
+  it("copies a raster's bands when OpenSeadragon duplicates a tile", async () => {
+    const { TiffRaster } = OpenSeadragon.RawTiffPlugin;
+    const raster = new TiffRaster({
+      width: 2, height: 1, bands: [new Uint8Array([1, 2])], samplesPerPixel: 1, bitsPerSample: [8],
+    });
+
+    const copy = await OpenSeadragon.converter.copy({}, raster, "tiffRaster");
+    expect(copy).not.toBe(raster);
+    expect(copy.bands[0]).not.toBe(raster.bands[0]);
+    expect(copy.bands[0]).toEqual(raster.bands[0]);
+    expect(copy.bitsPerSample).toEqual([8]);
+  });
+
+  it("hands out the raster itself when copies are opted out", () => {
+    // a fresh namespace, so that the plugin installs again and its edges can be captured
+    const learned = {};
+    const osd = Object.create(OpenSeadragon);
+    osd.RawTiffPlugin = undefined;
+    osd.RawTiffPluginShared = undefined;
+    osd.converter = { learn: (from, to, callback) => { learned[`${from}>${to}`] = callback; } };
+    enableGeoTIFFTileSource(osd, { copyRasters: false });
+
+    const raster = new osd.RawTiffPlugin.TiffRaster({
+      width: 2, height: 1, bands: [new Uint8Array([1, 2])], samplesPerPixel: 1, bitsPerSample: [8],
+    });
+    expect(learned["tiffRaster>tiffRaster"]({}, raster)).toBe(raster);
+  });
+
   it("isSvsStyleCompanionPage matches macro/label line (case-insensitive)", () => {
     expect(
       GeoTIFFTileSource.isSvsStyleCompanionPage(

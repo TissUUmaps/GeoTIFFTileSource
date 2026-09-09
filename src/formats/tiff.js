@@ -309,6 +309,10 @@ export function installRawTiffPlugin(OpenSeadragon, opts = {}) {
     format: deepMerge(defaultFormat, (opts.defaults && opts.defaults.format) || null),
   }, opts.defaults || {});
 
+  // OSD duplicates a cached tiffRaster through the same-type edge when a tile handler
+  // reads the original data; consumers that never modify rasters can skip the copy
+  const copyRasters = opts.copyRasters !== false;
+
   const workerPoolOptions = Object.assign({
     enabled: true,
     size: (typeof navigator !== "undefined" && navigator.hardwareConcurrency)
@@ -702,7 +706,11 @@ export function installRawTiffPlugin(OpenSeadragon, opts = {}) {
       $.converter.learn("rawTiff", "imageBitmap", (tile, data) => __rt_rawTiffToImageBitmap(tile, data), 1, 5);
     }
 
-    $.converter.learn("tiffRaster", "tiffRaster", (tile, raster) => copyTiffRaster(raster), 1, 1);
+    $.converter.learn(
+      "tiffRaster", "tiffRaster",
+      copyRasters ? (tile, raster) => copyTiffRaster(raster) : (tile, raster) => raster,
+      1, 1
+    );
     $.converter.learn("tiffRaster", "context2d", (tile, raster) => rasterToContext2d(tile, raster), 2, 10);
     $.converter.learn("tiffRaster", "imageBitmap", (tile, raster) => rasterToImageBitmap(tile, raster), 1, 50);
 

@@ -24,6 +24,9 @@ const openGeoTIFF = (input, options) =>
  * @param {String} options.workerUrl - URL of the worker script to use for GeoTIFF conversion. Defaults to the worker script bundled with this library.
  * @param {Object} options.workerPool - Worker pool to use for GeoTIFF conversion. Defaults to a new pool created for this instance.
  * @param {Object} options.decoderPool - geotiff.js Pool used to decode tiles. Defaults to a pool created on first use.
+ * @param {Boolean} options.copyRasters - Whether OpenSeadragon gets a copy of a tiffRaster's bands when it duplicates a cached tile,
+ *                                        which happens when a tile-invalidated handler reads the original data. Defaults to true;
+ *                                        consumers that never modify rasters can pass false to have the raster itself handed out.
  */
 export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
 
@@ -37,6 +40,7 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
     workerUrl,     // optional: string or URL
     workerPool,    // optional: { createWorker: () => Worker }
     decoderPool,   // optional: geotiff.js Pool
+    copyRasters,   // optional: boolean, default true
   } = options;
 
   const defaultCreateWorker = () => {
@@ -63,6 +67,7 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
   // Ensure RawTIFF converter plugin is installed.
   const RawTiffAPI = OpenSeadragon.RawTiffPlugin || installRawTiffPlugin(OpenSeadragon, {
     workerPool: effectiveWorkerPool,
+    copyRasters,
   });
 
   let tsCounter = 0;

@@ -1,11 +1,18 @@
 import { fromBlob, fromUrl, globals, Pool } from "geotiff";
 import { PromiseWrapper } from "./utils/PromiseWrapper.js";
 import { logOnce } from "./utils/consoleOnce.js"
+import { getTag, hasTag, loadTag } from "./utils/tags.js";
 import { parsePerkinElmerChannels } from "./formats/perkinElmer.js";
 import { installRawTiffPlugin } from "./formats/tiff.js";
 
-import * as gtiff from "geotiff";
-window.GeoTIFF = gtiff;
+/**
+ * Open a TIFF from a File or a URL.
+ *
+ * geotiff.js only caches remote reads in blocks when given a block size; without one every
+ * read is its own range request. 64 KiB is what its BlockedSource defaults to.
+ */
+const openGeoTIFF = (input, options) =>
+  input instanceof File ? fromBlob(input) : fromUrl(input, { blockSize: 65536, ...options });
 /**
  * Enable GeoTIFF Tile Source for OpenSeadragon.
  *
@@ -123,7 +130,7 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
         this.setupLevels();
       } else {
         this.promises = {
-          GeoTIFF: input instanceof File ? fromBlob(input, opts.GeoTIFFOptions) : fromUrl(input, opts.GeoTIFFOptions),
+          GeoTIFF: openGeoTIFF(input, opts.GeoTIFFOptions),
           GeoTIFFImages: new PromiseWrapper(),
           ready: new PromiseWrapper(),
         };
@@ -155,35 +162,35 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
       const fileExtension =
         input instanceof File ? input.name.split(".").pop() : input.split(".").pop();
 
-      let tiff = await (
-        input instanceof File ? fromBlob(input, opts.GeoTIFFOptions) : fromUrl(input, opts.GeoTIFFOptions)
-      );
+      let tiff = await openGeoTIFF(input, opts.GeoTIFFOptions);
       let imageCount = await tiff.getImageCount();
 
       const images = await Promise.all(
         Array.from({ length: imageCount }, (_, i) => tiff.getImage(i))
       );
 
-      let tiffPromise = input instanceof File ? fromBlob(input) : fromUrl(input);
+      let tiffPromise = openGeoTIFF(input, opts.GeoTIFFOptions);
 
       let filtered = this.userDefinedImagesFilter(images, opts);
       filtered = filtered.filter(
         (image) =>
-          image.fileDirectory.photometricInterpretation !==
+          getTag(image, "PhotometricInterpretation") !==
           globals.photometricInterpretations.TransparencyMask
       );
 
       // Sort by width (largest first), then group by aspect ratio / SVS macro+label (same as pre-layout overhaul)
       filtered.sort((a, b) => b.getWidth() - a.getWidth());
 
+      const descriptions = new Map(
+        await Promise.all(
+          filtered.map(async (image) => [image, await loadTag(image, "ImageDescription")])
+        )
+      );
+
       const tolerance = 0.015;
       const aspectRatioSets = filtered.reduce((accumulator, image) => {
         const r = image.getWidth() / image.getHeight();
-        let s = "";
-
-        if (image.fileDirectory.ImageDescription) {
-          s = image.fileDirectory.ImageDescription.split("\n")[1] ?? "";
-        }
+        const s = descriptions.get(image)?.split("\n")[1] ?? "";
 
         const exists = accumulator.filter(
           (set) => ((Math.abs(1 - set.aspectRatio / r) < tolerance)
@@ -459,15 +466,11 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
       this.setupComplete();
     }
 
-    static getGeoTiffFileDirectory(geoTiffFile) {
-      return geoTiffFile.getFileDirectory?.() ?? geoTiffFile.fileDirectory ?? {};
-    }
-
     static getGeoTiffFileKey(geoTiffFile) {
       return [
         geoTiffFile.getWidth(), geoTiffFile.getHeight(),
-        (this.getGeoTiffFileDirectory(geoTiffFile).TileWidth ?? 0),
-        (this.getGeoTiffFileDirectory(geoTiffFile).TileLength ?? 0),
+        (getTag(geoTiffFile, "TileWidth") ?? 0),
+        (getTag(geoTiffFile, "TileLength") ?? 0),
         (geoTiffFile.getWidth()/geoTiffFile.getHeight()).toFixed(6)
       ].join("|");
     }
@@ -476,8 +479,8 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
      * Aperio-style companion pages (macro / label) use line 1 of ImageDescription; they must not
      * participate in IFD pyramid detection when mixed with the main slide.
      */
-    static isSvsStyleCompanionPage(image) {
-      const desc = image.fileDirectory?.ImageDescription;
+    static async isSvsStyleCompanionPage(image) {
+      const desc = await loadTag(image, "ImageDescription");
       if (typeof desc !== "string" || !desc) return false;
       const line1 = desc.split("\n")[1] ?? "";
       const s = line1.toLowerCase();
@@ -518,7 +521,11 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
 
       const uniqueBySizeFull = this._uniqueByDecreasingSize(allTopImages);
 
-      const pyramidCandidates = allTopImages.filter((im) => !this.isSvsStyleCompanionPage(im));
+      const companionPages = new Set();
+      for (const im of allTopImages) {
+        if (await this.isSvsStyleCompanionPage(im)) companionPages.add(im);
+      }
+      const pyramidCandidates = allTopImages.filter((im) => !companionPages.has(im));
       const uniqueBySizePyramid = this._uniqueByDecreasingSize(pyramidCandidates);
 
       const scaleInterval = (base, value, tPx) => {
@@ -560,9 +567,7 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
 
       const ifdPyramidOkFull = looksIFDPyramid(uniqueBySizeFull);
       const ifdPyramidOkSubset = looksIFDPyramid(uniqueBySizePyramid);
-      const hasCompanionPages = allTopImages.some((im) =>
-        this.isSvsStyleCompanionPage(im)
-      );
+      const hasCompanionPages = companionPages.size > 0;
 
       // When macro/label pages share aspect ratio with the main slide, the "full" unique-size
       // list can still look like a valid pyramid; prefer non-companion levels in that case.
@@ -578,10 +583,7 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
         ? uniqueBySizeFull
         : (useSubsetPyramid ? uniqueBySizePyramid : uniqueBySizeFull);
 
-      const anyHasSubIFD = allTopImages.some((im) => {
-        const sub = this.getGeoTiffFileDirectory(im).SubIFDs;
-        return sub && sub.length;
-      });
+      const anyHasSubIFD = allTopImages.some((im) => hasTag(im, "SubIFDs"));
 
       let strategy = "single";
       if (pyramidPref === "ifd") {
@@ -615,7 +617,6 @@ high-resolution lowest level will be shown. Note that loading such data can cras
 
     static async buildLevelImages(tiff, layout, warnKey) {
       const { strategy, chosenPlane, ifdLevelsLargestToSmallest, planes } = layout;
-      const fd = (img) => img.getFileDirectory?.() ?? img.fileDirectory ?? {};
 
       if (strategy === "ifd") {
         // OSD expects levels from smallest->largest usually; your code may use opposite
@@ -627,9 +628,7 @@ high-resolution lowest level will be shown. Note that loading such data can cras
       }
 
       if (strategy === "subifd") {
-        const f = fd(chosenPlane);
-        const sub = f.SubIFDs;
-        if (!sub || !sub.length) {
+        if (!hasTag(chosenPlane, "SubIFDs")) {
           logOnce(warnKey, `[GeoTIFFTileSource] SubIFD pyramid requested/detected but the chosen plane has no SubIFDs. Falling back to single level.`, 'warn');
           return [chosenPlane];
         }
@@ -655,7 +654,7 @@ high-resolution lowest level will be shown. Note that loading such data can cras
       return [chosenPlane];
     }
 
-    regionToTiffRaster(level, x, y, abortSignal) {
+    async regionToTiffRaster(level, x, y, abortSignal) {
       const startTime = this.options.logLatency && Date.now();
 
       const tileWidth = level.tileWidth;
@@ -666,13 +665,15 @@ high-resolution lowest level will be shown. Note that loading such data can cras
       );
 
       const image = level.image;
-      const isQPTIFF = image.fileDirectory?.["Software"]?.startsWith("PerkinElmer-QPI");
+      const software = await loadTag(image, "Software");
+      const isQPTIFF = typeof software === "string" && software.startsWith("PerkinElmer-QPI");
 
       // For QPTIFF we keep channel color as a *hint* (conversion/renderer decides what to do with it).
       let tintRGB = null;
-      if (isQPTIFF && image.fileDirectory?.["ImageDescription"]) {
+      const description = isQPTIFF ? await loadTag(image, "ImageDescription") : null;
+      if (description) {
         try {
-          const qptiffXML = new DOMParser().parseFromString(image.fileDirectory["ImageDescription"], "text/xml");
+          const qptiffXML = new DOMParser().parseFromString(description, "text/xml");
           const channelColor = qptiffXML.querySelector("Color")?.textContent;
           tintRGB = channelColor ? channelColor.split(",").map((v) => parseInt(v, 10)) : null;
         } catch {
@@ -682,41 +683,42 @@ high-resolution lowest level will be shown. Note that loading such data can cras
 
       // Key point: do NOT do raster -> RGBA conversion here.
       // Read planar rasters (interleave:false) and wrap as a tiffRaster type.
-      return image.readRasters({
+      const rasters = await image.readRasters({
         interleave: false,
         window,
         pool: this._pool,
         width: tileWidth,
         height: tileHeight,
         signal: abortSignal,
-      }).then((rasters) => {
-        const bands = Array.isArray(rasters) ? rasters : [rasters];
-
-        const fd = image.fileDirectory || {};
-        const tiffRaster = new RawTiffAPI.TiffRaster({
-          width: tileWidth,
-          height: tileHeight,
-          bands,
-          samplesPerPixel: Math.max(fd.SamplesPerPixel || 0, bands.length),
-          bitsPerSample: fd.BitsPerSample || [8],
-          sampleFormat: fd.SampleFormat || null,
-          photometricInterpretation: fd.PhotometricInterpretation,
-          colorMap: fd.ColorMap || null,
-          fileDirectory: fd,
-          hints: {
-            ...(this.channel ? { channel: this.channel } : {}),
-            ...(tintRGB ? { tintRGB } : {}),
-          },
-        });
-
-        this.options.logLatency &&
-        (typeof this.options.logLatency == "function" ? this.options.logLatency : console.log)(
-          "Tile decode latency (ms):",
-          Date.now() - startTime
-        );
-
-        return tiffRaster;
       });
+      const bands = Array.isArray(rasters) ? rasters : [rasters];
+
+      const bitsPerSample = getTag(image, "BitsPerSample");
+      const sampleFormat = getTag(image, "SampleFormat");
+      const colorMap = await loadTag(image, "ColorMap");
+      const tiffRaster = new RawTiffAPI.TiffRaster({
+        width: tileWidth,
+        height: tileHeight,
+        bands,
+        samplesPerPixel: Math.max(image.getSamplesPerPixel(), bands.length),
+        bitsPerSample: bitsPerSample ? Array.from(bitsPerSample) : [8],
+        sampleFormat: sampleFormat ? Array.from(sampleFormat) : null,
+        photometricInterpretation: getTag(image, "PhotometricInterpretation"),
+        colorMap: colorMap || null,
+        fileDirectory: image.getFileDirectory().toObject(),
+        hints: {
+          ...(this.channel ? { channel: this.channel } : {}),
+          ...(tintRGB ? { tintRGB } : {}),
+        },
+      });
+
+      this.options.logLatency &&
+      (typeof this.options.logLatency == "function" ? this.options.logLatency : console.log)(
+        "Tile decode latency (ms):",
+        Date.now() - startTime
+      );
+
+      return tiffRaster;
     }
   }
 

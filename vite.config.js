@@ -32,14 +32,16 @@ export default defineConfig(({ mode }) => {
         },
       },
 
-      rollupOptions: lite
-        ? {
-          output: {
-            inlineDynamicImports: true,
-            manualChunks: undefined,
-          },
-        }
-        : undefined,
+      rollupOptions: {
+        // geotiff.js is a peer dependency, so the host application's copy is used.
+        // Only the lite build, meant to be dropped in as a single file, bundles it.
+        external: lite ? [] : ["geotiff"],
+        output: {
+          // the UMD script reads geotiff.js's browser bundle from its global
+          globals: { geotiff: "GeoTIFF" },
+          ...(lite ? { inlineDynamicImports: true, manualChunks: undefined } : {}),
+        },
+      },
     },
 
     worker: {

@@ -51,25 +51,29 @@ This library works by loading only parts of the remote TIFF file (which may be h
 
 ### Installation
 
-The plugin is available as both an npm package and a standalone script.
+The plugin is available as both an npm package and a standalone script. [geotiff.js](https://github.com/geotiffjs/geotiff.js) 3 is a peer dependency: the plugin uses the copy your application provides rather than bundling its own.
 
 #### Using NPM
 ```bash
-npm i geotiff-tilesource
+npm i geotiff-tilesource geotiff
 ```
 
 #### Using standalone scripts
 Standalone scripts for the plugin are available as both UMD and ES module scripts. The UMD script is compatible with the `OpenSeadragon` global object, while the ES module script can be imported as a module.
-Note that the OpenSeadragon library must be loaded before the plugin script. The geotiff.js library comes bundled with the plugin, and does not need to be loaded separately.
+Note that the OpenSeadragon and geotiff.js libraries must be loaded before the plugin script: the UMD script reads geotiff.js from the `GeoTIFF` global, and the ES module script imports it as `geotiff`, which an import map can resolve.
 
 ```html
 <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/openseadragon.min.js"></script>
 
 <!-- Using UMD script -->
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/geotiff@3/dist-browser/geotiff.js"></script>
 <script type="text/javascript" src="geotiff-tilesource.min.js"></script>
 <!-- Using ES module script -->
+<script type="importmap">{ "imports": { "geotiff": "https://cdn.jsdelivr.net/npm/geotiff@3/+esm" } }</script>
 <script type="module" src="geotiff-tilesource.mjs"></script>
 ```
+
+The lite build (`npm run build-lite`) is a single ES module file with geotiff.js bundled in, for pages that cannot use an import map.
 
 ### Extending OpenSeadragon
 

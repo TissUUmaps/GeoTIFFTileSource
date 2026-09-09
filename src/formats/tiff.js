@@ -18,6 +18,7 @@
  */
 
 import { fromBlob, fromArrayBuffer, globals } from "geotiff";
+import { getTag, loadTag } from "../utils/tags.js";
 import { Converters } from "../utils/Converters.js";
 import defaultFormat from "./options.js";
 import { logOnce } from "../utils/consoleOnce.js";
@@ -405,17 +406,14 @@ export function installRawTiffPlugin(OpenSeadragon, opts = {}) {
 
     const img = await getImageByIndex(tiff, imageIndex);
 
-    const width = typeof img.getWidth === "function" ? img.getWidth() : img.width;
-    const height = typeof img.getHeight === "function" ? img.getHeight() : img.height;
-    const samplesPerPixel = typeof img.getSamplesPerPixel === "function" ? img.getSamplesPerPixel() : (img.samplesPerPixel || 1);
-    const bitsPerSample = typeof img.getBitsPerSample === "function" ? img.getBitsPerSample() : (img.bitsPerSample || [8]);
-    const sampleFormat = typeof img.getSampleFormat === "function" ? img.getSampleFormat() : (img.sampleFormat || null);
-    const photometricInterpretation =
-      typeof img.getPhotometricInterpretation === "function" ? img.getPhotometricInterpretation()
-        : (img.fileDirectory ? img.fileDirectory.PhotometricInterpretation : undefined);
-
-    const fileDirectory = img.fileDirectory || null;
-    const colorMap = fileDirectory && fileDirectory.ColorMap ? fileDirectory.ColorMap : null;
+    const width = img.getWidth();
+    const height = img.getHeight();
+    const samplesPerPixel = img.getSamplesPerPixel();
+    const bitsPerSample = getTag(img, "BitsPerSample");
+    const sampleFormat = getTag(img, "SampleFormat");
+    const photometricInterpretation = getTag(img, "PhotometricInterpretation");
+    const colorMap = (await loadTag(img, "ColorMap")) || null;
+    const fileDirectory = img.getFileDirectory().toObject();
 
     const decodeOpts = Object.assign({ interleave: false }, hints.decode || {});
     const rasters = await img.readRasters(decodeOpts);
@@ -427,8 +425,8 @@ export function installRawTiffPlugin(OpenSeadragon, opts = {}) {
       width, height,
       bands,
       samplesPerPixel: spp,
-      bitsPerSample: Array.isArray(bitsPerSample) ? bitsPerSample : [bitsPerSample],
-      sampleFormat: Array.isArray(sampleFormat) ? sampleFormat : (sampleFormat ? [sampleFormat] : null),
+      bitsPerSample: bitsPerSample ? Array.from(bitsPerSample) : [8],
+      sampleFormat: sampleFormat ? Array.from(sampleFormat) : null,
       photometricInterpretation,
       colorMap,
       fileDirectory,

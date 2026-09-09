@@ -6,15 +6,26 @@ beforeAll(() => {
   enableGeoTIFFTileSource(OpenSeadragon);
 });
 
-/** @returns {*} minimal GeoTIFFImage-like object */
-function mockPage(w, h, imageDescription) {
+/**
+ * @returns {*} minimal GeoTIFFImage-like object with a geotiff.js 3 style file directory:
+ * inline tags can be read synchronously, deferred ones only through loadValue()
+ */
+function mockPage(w, h, imageDescription, { inline = {}, deferred = {} } = {}) {
+  const inlineTags = { PhotometricInterpretation: 1, ...inline };
+  const deferredTags = { ImageDescription: imageDescription ?? "", ...deferred };
   return {
     getWidth: () => w,
     getHeight: () => h,
-    fileDirectory: {
-      ImageDescription: imageDescription ?? "",
-      PhotometricInterpretation: 1,
-    },
+    getSamplesPerPixel: () => inlineTags.SamplesPerPixel ?? 1,
+    getFileDirectory: () => ({
+      hasTag: (name) => name in inlineTags || name in deferredTags,
+      getValue(name) {
+        if (name in deferredTags) throw new Error(`Field '${name}' is deferred`);
+        return inlineTags[name];
+      },
+      loadValue: async (name) => inlineTags[name] ?? deferredTags[name],
+      toObject: () => ({ ...inlineTags }),
+    }),
   };
 }
 
@@ -128,9 +139,7 @@ describe("GeoTIFFTileSource layout (pyramid + SVS companions)", () => {
     stripped.getTileWidth = () => 1000; // full width
     stripped.getTileHeight = () => 16; // RowsPerStrip
 
-    const tiled = mockPage(500, 400);
-    tiled.fileDirectory.TileWidth = 512;
-    tiled.fileDirectory.TileLength = 512;
+    const tiled = mockPage(500, 400, undefined, { inline: { TileWidth: 512, TileLength: 512 } });
     tiled.getTileWidth = () => 512;
     tiled.getTileHeight = () => 512;
 
@@ -160,19 +169,60 @@ describe("GeoTIFFTileSource layout (pyramid + SVS companions)", () => {
     expect(osd.GeoTIFFTileSource.sharedPool).toBe(decoderPool);
   });
 
-  it("isSvsStyleCompanionPage matches macro/label line (case-insensitive)", () => {
+  it("detects SubIFD pyramids without loading the deferred offsets", async () => {
+    const plain = [mockPage(1000, 800, "")];
+    expect((await GeoTIFFTileSource.resolveLayout({}, plain, {})).strategy).toBe("single");
+
+    const withSubIFDs = [mockPage(1000, 800, "", { deferred: { SubIFDs: [4096, 8192] } })];
+    // SubIFD pyramids cannot be read, so the layout falls back to the top-level IFDs
+    expect((await GeoTIFFTileSource.resolveLayout({}, withSubIFDs, {})).strategy).toBe("ifd");
+  });
+
+  it("reads tile metadata through the geotiff.js 3 directory API", async () => {
+    // BitsPerSample and SampleFormat are eager, ColorMap and Software are deferred
+    const image = mockPage(512, 512, "", {
+      inline: {
+        SamplesPerPixel: 3,
+        BitsPerSample: new Uint16Array([16, 16, 16]),
+        SampleFormat: new Uint16Array([1, 1, 1]),
+        TileWidth: 256,
+        TileLength: 256,
+      },
+      deferred: { Software: "libtiff", ColorMap: new Uint16Array([0, 1, 2]) },
+    });
+    image.readRasters = async () => [1, 2, 3].map(() => new Uint16Array(4));
+
+    expect(GeoTIFFTileSource.getGeoTiffFileKey(image)).toBe("512|512|256|256|1.000000");
+
+    const source = Object.create(GeoTIFFTileSource.prototype);
+    source.options = {};
+    source._pool = null;
+    source.channel = null;
+    const level = { image, tileWidth: 2, tileHeight: 2, scaleFactor: 1 };
+    const raster = await source.regionToTiffRaster(level, 0, 0);
+
+    expect(raster.getType()).toBe("tiffRaster");
+    expect(raster.samplesPerPixel).toBe(3);
+    expect(raster.bitsPerSample).toEqual([16, 16, 16]);
+    expect(raster.sampleFormat).toEqual([1, 1, 1]);
+    expect(raster.photometricInterpretation).toBe(1);
+    expect(raster.colorMap).toEqual(new Uint16Array([0, 1, 2]));
+    expect(raster.fileDirectory.TileWidth).toBe(256);
+  });
+
+  it("isSvsStyleCompanionPage matches macro/label line (case-insensitive)", async () => {
     expect(
-      GeoTIFFTileSource.isSvsStyleCompanionPage(
+      await GeoTIFFTileSource.isSvsStyleCompanionPage(
         mockPage(10, 10, "x\nMACRO")
       )
     ).toBe(true);
     expect(
-      GeoTIFFTileSource.isSvsStyleCompanionPage(
+      await GeoTIFFTileSource.isSvsStyleCompanionPage(
         mockPage(10, 10, "x\nLabel")
       )
     ).toBe(true);
     expect(
-      GeoTIFFTileSource.isSvsStyleCompanionPage(
+      await GeoTIFFTileSource.isSvsStyleCompanionPage(
         mockPage(10, 10, "x\nbaseline")
       )
     ).toBe(false);

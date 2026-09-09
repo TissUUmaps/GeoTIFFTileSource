@@ -14,6 +14,7 @@
 
 import { fromArrayBuffer } from "geotiff";
 import { Converters } from "../utils/Converters.js";
+import { getTag, loadTag } from "../utils/tags.js";
 
 // Tests in node have no self.
 const workerRef = self || globalThis;
@@ -51,35 +52,6 @@ function errorToPlain(err) {
 function normalizeRasters(rasters) {
   if (Array.isArray(rasters)) return rasters;
   return [rasters];
-}
-
-function getPhotometric(fileDirectory) {
-  return fileDirectory && typeof fileDirectory.PhotometricInterpretation === "number"
-    ? fileDirectory.PhotometricInterpretation
-    : undefined;
-}
-
-function getColorMap(fileDirectory) {
-  return fileDirectory ? (fileDirectory.ColorMap || null) : null;
-}
-
-function getBitsPerSample(img) {
-  try {
-    if (typeof img.getBitsPerSample === "function") return img.getBitsPerSample();
-  } catch { /* noop */ }
-  return (img && img.fileDirectory && img.fileDirectory.BitsPerSample) || [8];
-}
-
-function getSamplesPerPixel(img) {
-  try {
-    if (typeof img.getSamplesPerPixel === "function") return img.getSamplesPerPixel();
-  } catch { /* noop */ }
-  return (img && img.fileDirectory && img.fileDirectory.SamplesPerPixel) || 1;
-}
-
-function getSampleFormat(img) {
-  const fd = img && img.fileDirectory;
-  return fd && fd.SampleFormat ? fd.SampleFormat : null;
 }
 
 function reviveBands(descs) {
@@ -482,12 +454,12 @@ async function decodeRasterFromArrayBuffer(ab, hints) {
   const img = await tiff.getImage(imageIndex);
   const width = img.getWidth();
   const height = img.getHeight();
-  const fileDirectory = img.fileDirectory || {};
-  const samplesPerPixel = getSamplesPerPixel(img);
-  const bitsPerSample = getBitsPerSample(img);
-  const sampleFormat = getSampleFormat(img);
-  const photometricInterpretation = getPhotometric(fileDirectory);
-  const colorMap = getColorMap(fileDirectory);
+  const samplesPerPixel = img.getSamplesPerPixel();
+  const bitsPerSample = getTag(img, "BitsPerSample");
+  const sampleFormat = getTag(img, "SampleFormat");
+  const photometricInterpretation = getTag(img, "PhotometricInterpretation");
+  const colorMap = (await loadTag(img, "ColorMap")) || null;
+  const fileDirectory = img.getFileDirectory().toObject();
 
   const decodeOpts = Object.assign({ interleave: false }, (hints && hints.decode) || {});
   const rasters = normalizeRasters(await img.readRasters({
@@ -506,9 +478,9 @@ async function decodeRasterFromArrayBuffer(ab, hints) {
     width,
     height,
     bands,
-    samplesPerPixel: Math.max(samplesPerPixel || 0, bands.length),
-    bitsPerSample: Array.isArray(bitsPerSample) ? bitsPerSample : [bitsPerSample],
-    sampleFormat: sampleFormat || null,
+    samplesPerPixel: Math.max(samplesPerPixel, bands.length),
+    bitsPerSample: bitsPerSample ? Array.from(bitsPerSample) : [8],
+    sampleFormat: sampleFormat ? Array.from(sampleFormat) : null,
     photometricInterpretation,
     colorMap,
     fileDirectory,

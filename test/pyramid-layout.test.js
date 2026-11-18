@@ -123,6 +123,25 @@ describe("GeoTIFFTileSource layout (pyramid + SVS companions)", () => {
     expect(source.getNumTiles(1)).toEqual(new OpenSeadragon.Point(21, 11));
   });
 
+  it("keeps the tile at a point within the tiles of the level", () => {
+    // the same level: a point just above the bottom edge is at 48.6 px, past the single 48 px row
+    const source = Object.create(GeoTIFFTileSource.prototype);
+    source.levels = [
+      { width: 100, height: 48, tileWidth: 48, tileHeight: 48 },
+      { width: 1000, height: 486, tileWidth: 48, tileHeight: 48 },
+    ];
+    source.minLevel = 0;
+    source.maxLevel = 1;
+    source.dimensions = new OpenSeadragon.Point(1000, 486);
+    source.aspectRatio = 1000 / 486;
+    const point = new OpenSeadragon.Point(1 - 1e-12, 486 / 1000 - 1e-12);
+
+    // the inherited implementation returns row 1 here, although the level has one row
+    expect(OpenSeadragon.TileSource.prototype.getTileAtPoint.call(source, 0, point).y).toBe(1);
+    expect(source.getTileAtPoint(0, point)).toEqual(new OpenSeadragon.Point(2, 0));
+    expect(source.getTileAtPoint(1, point)).toEqual(new OpenSeadragon.Point(20, 10));
+  });
+
   it("isSvsStyleCompanionPage matches macro/label line (case-insensitive)", () => {
     expect(
       GeoTIFFTileSource.isSvsStyleCompanionPage(

@@ -325,6 +325,24 @@ export const enableGeoTIFFTileSource = (OpenSeadragon, options={}) => {
     }
 
     /**
+     * Return the tile containing a point at a given level.
+     *
+     * The inherited implementation scales the point by the level scale, while getNumTiles
+     * uses the level itself. For a level whose size is rounded down, a point near the right
+     * or bottom edge would get an index past the last tile, so the index is clamped.
+     * @function
+     * @param {Number} level
+     * @param {OpenSeadragon.Point} point
+     */
+    getTileAtPoint(level, point) {
+      const tile = super.getTileAtPoint(level, point);
+      const numTiles = this.getNumTiles(level);
+      tile.x = Math.min(tile.x, numTiles.x - 1);
+      tile.y = Math.min(tile.y, numTiles.y - 1);
+      return tile;
+    }
+
+    /**
      * Handle maintaining unique caches per channel in multi-channel images
      */
     getTileHashKey(level, x, y) {
